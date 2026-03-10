@@ -83,6 +83,14 @@ func handler(ctx context.Context) error {
 			Normalize:      true,
 			EmbeddingTypes: []string{"float"},
 		},
+		ClientConfig: opensearchml.CreateConnectorRequestClientConfig{
+			MaxConnection:      10,
+			ConnectionTimeout:  60000,
+			ReadTimeout:        60000,
+			RetryBackoffPolicy: "exponential_full_jitter",
+			MaxReryTimes:       5,
+			RetryBackoffMillis: 1000,
+		},
 		Credential: opensearchml.CreateConnectorRequestCredential{
 			RoleARN: config.RoleARN,
 		},

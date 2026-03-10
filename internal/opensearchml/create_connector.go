@@ -11,13 +11,25 @@ import (
 
 // https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ml-amazon-connector.html
 type CreateConnectorRequest struct {
-	Name        string                           `json:"name"`
-	Description string                           `json:"description"`
-	Version     int                              `json:"version"`
-	Protocol    string                           `json:"protocol"`
-	Parameters  CreateConnectorRequestParameters `json:"parameters"`
-	Credential  CreateConnectorRequestCredential `json:"credential"`
-	Actions     []CreateConnectorRequestAction   `json:"actions"`
+	Name         string                             `json:"name"`
+	Description  string                             `json:"description"`
+	Version      int                                `json:"version"`
+	ClientConfig CreateConnectorRequestClientConfig `json:"client_config,omitempty"`
+	Protocol     string                             `json:"protocol"`
+	Parameters   CreateConnectorRequestParameters   `json:"parameters"`
+	Credential   CreateConnectorRequestCredential   `json:"credential"`
+	Actions      []CreateConnectorRequestAction     `json:"actions"`
+}
+
+type CreateConnectorRequestClientConfig struct {
+	MaxConnection       int    `json:"max_connection,omitempty"`
+	ConnectionTimeout   int    `json:"connection_timeout,omitempty"`
+	ReadTimeout         int    `json:"read_timeout,omitempty"`
+	RetryBackoffPolicy  string `json:"retry_backoff_policy,omitempty"`
+	MaxReryTimes        int    `json:"max_retry_times,omitempty"`
+	RetryBackoffMillis  int    `json:"retry_backoff_millis,omitempty"`
+	RetryTimeoutSeconds int    `json:"retry_timeout_seconds,omitempty"`
+	SkipSSLVerification bool   `json:"skip_ssl_verification,omitempty"`
 }
 
 type CreateConnectorRequestParameters struct {
