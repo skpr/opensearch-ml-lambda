@@ -117,7 +117,7 @@ func handler(ctx context.Context) error {
 
 	logger.SetAttr("model_group_id", groupResp.ModelGroupID)
 
-	connectorResp, err := client.CreateConnector(ctx, connector)
+	connectorResp, err := client.CreateOrUpdateConnector(ctx, connector)
 	if err != nil {
 		return logger.WrapError(err)
 	}
