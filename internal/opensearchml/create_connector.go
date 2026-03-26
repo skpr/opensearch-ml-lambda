@@ -58,7 +58,8 @@ type CreateConnectorRequestAction struct {
 }
 
 type CreateOrUpdateConnectorResponse struct {
-	ConnectorID string `json:"connector_id"`
+	ConnectorID     string `json:"connector_id"`
+	ModelUndeployed bool
 }
 
 func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnectorRequest) (CreateOrUpdateConnectorResponse, error) {
@@ -71,15 +72,46 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 		return CreateOrUpdateConnectorResponse{}, fmt.Errorf("marshal connector payload: %w", err)
 	}
 
-	// If a connector with this name already exists, update it via PUT.
+	// If a connector with this name already exists, compare and update via PUT only if changed.
 	if id, ok, err := c.FindConnectorIDByName(ctx, req.Name); err != nil {
 		return CreateOrUpdateConnectorResponse{}, fmt.Errorf("find connector by name: %w", err)
 	} else if ok {
+		existingRaw, err := c.getConnectorRaw(ctx, id)
+		if err != nil {
+			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("get existing connector: %w", err)
+		}
+
+		matches, err := connectorMatchesRequest(existingRaw, req)
+		if err != nil {
+			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("compare connector: %w", err)
+		}
+
+		if matches {
+			return CreateOrUpdateConnectorResponse{ConnectorID: id}, nil
+		}
+
+		modelIDs, err := c.FindModelIDsByConnectorID(ctx, id)
+		if err != nil {
+			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("find models for connector: %w", err)
+		}
+
+		for _, modelID := range modelIDs {
+			if err := c.UndeployModel(ctx, modelID); err != nil {
+				return CreateOrUpdateConnectorResponse{}, fmt.Errorf("undeploy model %s: %w", modelID, err)
+			}
+		}
+
 		if err := c.updateConnector(ctx, id, bodyBytes); err != nil {
 			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("update connector: %w", err)
 		}
 
-		return CreateOrUpdateConnectorResponse{ConnectorID: id}, nil
+		for _, modelID := range modelIDs {
+			if err := c.DeployModel(ctx, modelID); err != nil {
+				return CreateOrUpdateConnectorResponse{}, fmt.Errorf("redeploy model %s: %w", modelID, err)
+			}
+		}
+
+		return CreateOrUpdateConnectorResponse{ConnectorID: id, ModelUndeployed: len(modelIDs) > 0}, nil
 	}
 
 	// Connector does not exist yet, create it via POST.
