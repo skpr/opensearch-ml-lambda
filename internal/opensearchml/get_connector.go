@@ -37,57 +37,66 @@ func (c *Client) getConnectorRaw(ctx context.Context, connectorID string) (json.
 	return respBytes, nil
 }
 
-func connectorMatchesRequest(existingRaw json.RawMessage, req CreateConnectorRequest) (bool, error) {
+func connectorDiff(existingRaw json.RawMessage, req CreateConnectorRequest) ([]ConnectorChange, error) {
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
-		return false, fmt.Errorf("marshal request: %w", err)
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
 	var reqMap map[string]any
 	if err := json.Unmarshal(reqBytes, &reqMap); err != nil {
-		return false, fmt.Errorf("unmarshal request to map: %w", err)
+		return nil, fmt.Errorf("unmarshal request to map: %w", err)
 	}
 
 	var existingMap map[string]any
 	if err := json.Unmarshal(existingRaw, &existingMap); err != nil {
-		return false, fmt.Errorf("unmarshal existing to map: %w", err)
+		return nil, fmt.Errorf("unmarshal existing to map: %w", err)
 	}
 
-	return jsonSubsetEqual(reqMap, existingMap), nil
+	var changes []ConnectorChange
+	jsonDiff("", reqMap, existingMap, &changes)
+	return changes, nil
 }
 
-func jsonSubsetEqual(desired, actual any) bool {
+// ConnectorChange describes a single field difference between the desired and existing connector.
+type ConnectorChange struct {
+	Path     string `json:"path"`
+	Desired  any    `json:"desired"`
+	Existing any    `json:"existing"`
+}
+
+func jsonDiff(prefix string, desired, actual any, changes *[]ConnectorChange) {
 	switch d := desired.(type) {
 	case map[string]any:
 		a, ok := actual.(map[string]any)
 		if !ok {
-			return false
+			*changes = append(*changes, ConnectorChange{Path: prefix, Desired: desired, Existing: actual})
+			return
 		}
 		for k, dv := range d {
+			p := k
+			if prefix != "" {
+				p = prefix + "." + k
+			}
 			av, exists := a[k]
 			if !exists {
-				return false
+				*changes = append(*changes, ConnectorChange{Path: p, Desired: dv, Existing: nil})
+				continue
 			}
-			if !jsonSubsetEqual(dv, av) {
-				return false
-			}
+			jsonDiff(p, dv, av, changes)
 		}
-		return true
 	case []any:
 		a, ok := actual.([]any)
-		if !ok {
-			return false
-		}
-		if len(d) != len(a) {
-			return false
+		if !ok || len(d) != len(a) {
+			*changes = append(*changes, ConnectorChange{Path: prefix, Desired: desired, Existing: actual})
+			return
 		}
 		for i := range d {
-			if !jsonSubsetEqual(d[i], a[i]) {
-				return false
-			}
+			jsonDiff(fmt.Sprintf("%s[%d]", prefix, i), d[i], a[i], changes)
 		}
-		return true
 	default:
-		return fmt.Sprintf("%v", desired) == fmt.Sprintf("%v", actual)
+		if fmt.Sprintf("%v", desired) != fmt.Sprintf("%v", actual) {
+			*changes = append(*changes, ConnectorChange{Path: prefix, Desired: desired, Existing: actual})
+		}
 	}
 }

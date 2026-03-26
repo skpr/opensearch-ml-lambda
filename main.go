@@ -124,6 +124,7 @@ func handler(ctx context.Context) error {
 
 	logger.SetAttr("connector_id", connectorResp.ConnectorID)
 	logger.SetAttr("model_undeployed", connectorResp.ModelUndeployed)
+	logger.SetAttr("connector_changes", connectorResp.Changes)
 
 	model := opensearchml.RegisterModelRequest{
 		Name:         "bedrock titan embedding model v2",

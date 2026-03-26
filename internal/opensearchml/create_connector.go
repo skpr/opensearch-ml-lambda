@@ -58,8 +58,9 @@ type CreateConnectorRequestAction struct {
 }
 
 type CreateOrUpdateConnectorResponse struct {
-	ConnectorID     string `json:"connector_id"`
+	ConnectorID     string            `json:"connector_id"`
 	ModelUndeployed bool
+	Changes         []ConnectorChange
 }
 
 func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnectorRequest) (CreateOrUpdateConnectorResponse, error) {
@@ -81,12 +82,12 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("get existing connector: %w", err)
 		}
 
-		matches, err := connectorMatchesRequest(existingRaw, req)
+		changes, err := connectorDiff(existingRaw, req)
 		if err != nil {
 			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("compare connector: %w", err)
 		}
 
-		if matches {
+		if len(changes) == 0 {
 			return CreateOrUpdateConnectorResponse{ConnectorID: id}, nil
 		}
 
@@ -111,7 +112,7 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 			}
 		}
 
-		return CreateOrUpdateConnectorResponse{ConnectorID: id, ModelUndeployed: len(modelIDs) > 0}, nil
+		return CreateOrUpdateConnectorResponse{ConnectorID: id, ModelUndeployed: len(modelIDs) > 0, Changes: changes}, nil
 	}
 
 	// Connector does not exist yet, create it via POST.
