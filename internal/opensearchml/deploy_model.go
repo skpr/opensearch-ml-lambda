@@ -7,6 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+)
+
+const (
+	ModelStateDeployed   = "DEPLOYED"
+	ModelStateUndeployed = "UNDEPLOYED"
+
+	pollInterval = 2 * time.Second
+	pollTimeout  = 2 * time.Minute
 )
 
 func (c *Client) UndeployModel(ctx context.Context, modelID string) error {
@@ -28,6 +37,10 @@ func (c *Client) UndeployModel(ctx context.Context, modelID string) error {
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		respBytes, _ := io.ReadAll(httpResp.Body)
 		return fmt.Errorf("undeploy model failed: status=%d body=%s", httpResp.StatusCode, string(respBytes))
+	}
+
+	if err := c.waitForModelStatus(ctx, modelID, ModelStateUndeployed); err != nil {
+		return fmt.Errorf("wait for model undeploy: %w", err)
 	}
 
 	return nil
@@ -54,7 +67,74 @@ func (c *Client) DeployModel(ctx context.Context, modelID string) error {
 		return fmt.Errorf("deploy model failed: status=%d body=%s", httpResp.StatusCode, string(respBytes))
 	}
 
+	if err := c.waitForModelStatus(ctx, modelID, ModelStateDeployed); err != nil {
+		return fmt.Errorf("wait for model deploy: %w", err)
+	}
+
 	return nil
+}
+
+type getModelResponse struct {
+	ModelState string `json:"model_state"`
+}
+
+func (c *Client) getModelState(ctx context.Context, modelID string) (string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/_plugins/_ml/models/%s", modelID), nil)
+	if err != nil {
+		return "", fmt.Errorf("new request: %w", err)
+	}
+	httpReq.Header.Set("Accept", "application/json")
+
+	httpResp, err := c.opensearch.Client.Perform(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("perform get model request: %w", err)
+	}
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			fmt.Printf("error closing response body: %v\n", err)
+		}
+	}()
+
+	respBytes, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read get model response: %w", err)
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return "", fmt.Errorf("get model failed: status=%d body=%s", httpResp.StatusCode, string(respBytes))
+	}
+
+	var resp getModelResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		return "", fmt.Errorf("unmarshal get model response: %w", err)
+	}
+
+	return resp.ModelState, nil
+}
+
+func (c *Client) waitForModelStatus(ctx context.Context, modelID, desiredState string) error {
+	deadline := time.Now().Add(pollTimeout)
+
+	for {
+		state, err := c.getModelState(ctx, modelID)
+		if err != nil {
+			return fmt.Errorf("get model state: %w", err)
+		}
+
+		if state == desiredState {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for model %s to reach state %s (current: %s)", modelID, desiredState, state)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 func (c *Client) FindModelIDsByConnectorID(ctx context.Context, connectorID string) ([]string, error) {
