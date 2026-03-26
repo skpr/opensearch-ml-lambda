@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 )
 
 // https://docs.aws.amazon.com/opensearch-service/latest/developerguide/ml-amazon-connector.html
@@ -91,28 +93,12 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 			return CreateOrUpdateConnectorResponse{ConnectorID: id}, nil
 		}
 
-		modelIDs, err := c.FindModelIDsByConnectorID(ctx, id)
+		undeployed, err := c.updateConnectorWithUndeploy(ctx, id, bodyBytes)
 		if err != nil {
-			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("find models for connector: %w", err)
-		}
-
-		for _, modelID := range modelIDs {
-			if err := c.UndeployModel(ctx, modelID); err != nil {
-				return CreateOrUpdateConnectorResponse{}, fmt.Errorf("undeploy model %s: %w", modelID, err)
-			}
-		}
-
-		if err := c.updateConnector(ctx, id, bodyBytes); err != nil {
 			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("update connector: %w", err)
 		}
 
-		for _, modelID := range modelIDs {
-			if err := c.DeployModel(ctx, modelID); err != nil {
-				return CreateOrUpdateConnectorResponse{}, fmt.Errorf("redeploy model %s: %w", modelID, err)
-			}
-		}
-
-		return CreateOrUpdateConnectorResponse{ConnectorID: id, ModelUndeployed: len(modelIDs) > 0, Changes: changes}, nil
+		return CreateOrUpdateConnectorResponse{ConnectorID: id, ModelUndeployed: undeployed, Changes: changes}, nil
 	}
 
 	// Connector does not exist yet, create it via POST.
@@ -139,7 +125,7 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 		if id, ok, err := c.FindConnectorIDByName(ctx, req.Name); err != nil {
 			return CreateOrUpdateConnectorResponse{}, fmt.Errorf("create conflict; re-find connector: %w", err)
 		} else if ok {
-			if err := c.updateConnector(ctx, id, bodyBytes); err != nil {
+			if _, err := c.updateConnectorWithUndeploy(ctx, id, bodyBytes); err != nil {
 				return CreateOrUpdateConnectorResponse{}, fmt.Errorf("create conflict; update connector: %w", err)
 			}
 
@@ -164,17 +150,59 @@ func (c *Client) CreateOrUpdateConnector(ctx context.Context, req CreateConnecto
 	return out, nil
 }
 
-// updateConnector sends a PUT request to update an existing connector.
-func (c *Client) updateConnector(ctx context.Context, connectorID string, bodyBytes []byte) error {
+// updateConnectorWithUndeploy attempts a PUT update. If OpenSearch rejects it
+// because deployed models reference the connector, it parses the model IDs from
+// the error, undeploys them, retries the update, and redeploys.
+// Returns true if any models were undeployed.
+func (c *Client) updateConnectorWithUndeploy(ctx context.Context, connectorID string, bodyBytes []byte) (bool, error) {
+	status, respBody, err := c.putConnector(ctx, connectorID, bodyBytes)
+	if err != nil {
+		return false, err
+	}
+
+	if status >= 200 && status < 300 {
+		return false, nil
+	}
+
+	modelIDs := parseModelIDsFromError(respBody)
+	if len(modelIDs) == 0 {
+		return false, fmt.Errorf("update connector failed: status=%d body=%s", status, respBody)
+	}
+
+	for _, modelID := range modelIDs {
+		if err := c.UndeployModel(ctx, modelID); err != nil {
+			return false, fmt.Errorf("undeploy model %s: %w", modelID, err)
+		}
+	}
+
+	status, respBody, err = c.putConnector(ctx, connectorID, bodyBytes)
+	if err != nil {
+		return true, err
+	}
+
+	if status < 200 || status >= 300 {
+		return true, fmt.Errorf("update connector after undeploy failed: status=%d body=%s", status, respBody)
+	}
+
+	for _, modelID := range modelIDs {
+		if err := c.DeployModel(ctx, modelID); err != nil {
+			return true, fmt.Errorf("redeploy model %s: %w", modelID, err)
+		}
+	}
+
+	return true, nil
+}
+
+func (c *Client) putConnector(ctx context.Context, connectorID string, bodyBytes []byte) (int, string, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("/_plugins/_ml/connectors/%s", connectorID), bytes.NewReader(bodyBytes))
 	if err != nil {
-		return fmt.Errorf("new request: %w", err)
+		return 0, "", fmt.Errorf("new request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := c.opensearch.Client.Perform(httpReq)
 	if err != nil {
-		return fmt.Errorf("perform update request: %w", err)
+		return 0, "", fmt.Errorf("perform update request: %w", err)
 	}
 	defer func() {
 		if err := httpResp.Body.Close(); err != nil {
@@ -182,9 +210,30 @@ func (c *Client) updateConnector(ctx context.Context, connectorID string, bodyBy
 		}
 	}()
 
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		respBytes, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("update connector failed: status=%d body=%s", httpResp.StatusCode, string(respBytes))
+	respBytes, _ := io.ReadAll(httpResp.Body)
+	return httpResp.StatusCode, string(respBytes), nil
+}
+
+var modelIDsFromErrorRe = regexp.MustCompile(`\[([a-zA-Z0-9_,-]+)\]`)
+
+func parseModelIDsFromError(body string) []string {
+	if !strings.Contains(body, "undeploy") {
+		return nil
+	}
+
+	matches := modelIDsFromErrorRe.FindAllStringSubmatch(body, -1)
+	for _, m := range matches {
+		ids := strings.Split(m[1], ",")
+		var valid []string
+		for _, id := range ids {
+			id = strings.TrimSpace(id)
+			if len(id) > 0 {
+				valid = append(valid, id)
+			}
+		}
+		if len(valid) > 0 {
+			return valid
+		}
 	}
 
 	return nil
