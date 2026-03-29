@@ -24,7 +24,7 @@ func TestConnectorDiff(t *testing.T) {
 		},
 		Actions: []CreateConnectorRequestAction{
 			{
-				ActionType:  "predict",
+				ActionType:  "PREDICT",
 				Method:      "POST",
 				URL:         "https://example.com/invoke",
 				Headers:     map[string]string{"content-type": "application/json"},
@@ -85,13 +85,34 @@ func TestConnectorDiff(t *testing.T) {
 			wantPaths: []string{"actions"},
 		},
 		{
-			name: "different credential",
+			name: "different credential is ignored",
 			existing: func() string {
 				modified := req
 				modified.Credential.RoleARN = "arn:aws:iam::999999999999:role/other"
 				return mustMarshal(t, modified)
 			}(),
-			wantPaths: []string{"credential.roleArn"},
+			wantNoChanges: true,
+		},
+		{
+			name: "missing credential in existing is ignored",
+			existing: func() string {
+				m := mustUnmarshalMap(t, mustMarshal(t, req))
+				delete(m, "credential")
+				b, _ := json.Marshal(m)
+				return string(b)
+			}(),
+			wantNoChanges: true,
+		},
+		{
+			name: "JSON-encoded string parameter matches slice",
+			existing: func() string {
+				m := mustUnmarshalMap(t, mustMarshal(t, req))
+				params := m["parameters"].(map[string]any)
+				params["embeddingTypes"] = `["float"]`
+				b, _ := json.Marshal(m)
+				return string(b)
+			}(),
+			wantNoChanges: true,
 		},
 		{
 			name: "extra nested API fields in parameters",
@@ -113,7 +134,7 @@ func TestConnectorDiff(t *testing.T) {
 				modified.Credential.RoleARN = "arn:aws:iam::000000000000:role/other"
 				return mustMarshal(t, modified)
 			}(),
-			wantPaths: []string{"description", "parameters.region", "credential.roleArn"},
+			wantPaths: []string{"description", "parameters.region"},
 		},
 		{
 			name: "missing field in existing",

@@ -53,6 +53,10 @@ func connectorDiff(existingRaw json.RawMessage, req CreateConnectorRequest) ([]C
 		return nil, fmt.Errorf("unmarshal existing to map: %w", err)
 	}
 
+	// Credentials are never returned by the API, so exclude from diff.
+	delete(reqMap, "credential")
+	delete(existingMap, "credential")
+
 	var changes []ConnectorChange
 	jsonDiff("", reqMap, existingMap, &changes)
 	return changes, nil
@@ -87,7 +91,18 @@ func jsonDiff(prefix string, desired, actual any, changes *[]ConnectorChange) {
 		}
 	case []any:
 		a, ok := actual.([]any)
-		if !ok || len(d) != len(a) {
+		if !ok {
+			if aStr, isStr := actual.(string); isStr {
+				var decoded any
+				if json.Unmarshal([]byte(aStr), &decoded) == nil {
+					jsonDiff(prefix, desired, decoded, changes)
+					return
+				}
+			}
+			*changes = append(*changes, ConnectorChange{Path: prefix, Desired: desired, Existing: actual})
+			return
+		}
+		if len(d) != len(a) {
 			*changes = append(*changes, ConnectorChange{Path: prefix, Desired: desired, Existing: actual})
 			return
 		}

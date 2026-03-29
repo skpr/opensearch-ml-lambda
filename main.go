@@ -96,7 +96,7 @@ func handler(ctx context.Context) error {
 		},
 		Actions: []opensearchml.CreateConnectorRequestAction{
 			{
-				ActionType: "predict",
+				ActionType: "PREDICT",
 				Method:     "POST",
 				URL:        "https://bedrock-runtime.${parameters.region}.amazonaws.com/model/${parameters.model}/invoke",
 				Headers: map[string]string{
