@@ -11,13 +11,13 @@ func TestConnectorDiff(t *testing.T) {
 		Description: "A test connector",
 		Version:     1,
 		Protocol:    "aws_sigv4",
-		Parameters: CreateConnectorRequestParameters{
-			Region:         "ap-southeast-2",
-			ServiceName:    "bedrock",
-			Model:          "amazon.titan-embed-text-v2:0",
-			Dimensions:     1024,
-			Normalize:      true,
-			EmbeddingTypes: []string{"float"},
+		Parameters: map[string]any{
+			"region":         "ap-southeast-2",
+			"service_name":   "bedrock",
+			"model":          "amazon.titan-embed-text-v2:0",
+			"dimensions":     1024,
+			"normalize":      true,
+			"embeddingTypes": []string{"float"},
 		},
 		Credential: CreateConnectorRequestCredential{
 			RoleARN: "arn:aws:iam::123456789012:role/test",
@@ -70,7 +70,8 @@ func TestConnectorDiff(t *testing.T) {
 			name: "different parameter",
 			existing: func() string {
 				modified := req
-				modified.Parameters.Region = "us-east-1"
+				modified.Parameters = cloneParams(req.Parameters)
+				modified.Parameters["region"] = "us-east-1"
 				return mustMarshal(t, modified)
 			}(),
 			wantPaths: []string{"parameters.region"},
@@ -130,7 +131,8 @@ func TestConnectorDiff(t *testing.T) {
 			existing: func() string {
 				modified := req
 				modified.Description = "Different"
-				modified.Parameters.Region = "us-west-2"
+				modified.Parameters = cloneParams(req.Parameters)
+				modified.Parameters["region"] = "us-west-2"
 				modified.Credential.RoleARN = "arn:aws:iam::000000000000:role/other"
 				return mustMarshal(t, modified)
 			}(),
@@ -228,6 +230,14 @@ func TestConnectorDiffValues(t *testing.T) {
 			t.Errorf("expected existing 1, got %v", c.Existing)
 		}
 	}
+}
+
+func cloneParams(p map[string]any) map[string]any {
+	out := make(map[string]any, len(p))
+	for k, v := range p {
+		out[k] = v
+	}
+	return out
 }
 
 func mustMarshal(t *testing.T, v any) string {

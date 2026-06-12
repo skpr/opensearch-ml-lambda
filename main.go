@@ -17,9 +17,13 @@ import (
 
 // Config holds the environment configuration
 type Config struct {
-	StreamName        string `env:"STREAM_NAME,required"`
-	OpenSearchAddress string `env:"OPENSEARCH_ADDRESS,required"`
-	RoleARN           string `env:"ROLE_ARN,required"`
+	StreamName           string `env:"STREAM_NAME,required"`
+	OpenSearchAddress    string `env:"OPENSEARCH_ADDRESS,required"`
+	RoleARN              string `env:"ROLE_ARN,required"`
+	BedrockRegion        string `env:"BEDROCK_REGION,required"`
+	ConverseModel        string `env:"CONVERSE_MODEL,required"`
+	ConverseSystemPrompt string `env:"CONVERSE_SYSTEM_PROMPT" default:"you are a helpful assistant."`
+	LLMModelName         string `env:"LLM_MODEL_NAME" default:"Bedrock Converse model"`
 }
 
 func main() {
@@ -75,13 +79,13 @@ func handler(ctx context.Context) error {
 		Description: "The connector to Bedrock Titan embedding model",
 		Version:     1,
 		Protocol:    "aws_sigv4",
-		Parameters: opensearchml.CreateConnectorRequestParameters{
-			Region:         "ap-southeast-2",
-			ServiceName:    "bedrock",
-			Model:          "amazon.titan-embed-text-v2:0",
-			Dimensions:     1024,
-			Normalize:      true,
-			EmbeddingTypes: []string{"float"},
+		Parameters: map[string]any{
+			"region":         config.BedrockRegion,
+			"service_name":   "bedrock",
+			"model":          "amazon.titan-embed-text-v2:0",
+			"dimensions":     1024,
+			"normalize":      true,
+			"embeddingTypes": []string{"float"},
 		},
 		ClientConfig: opensearchml.CreateConnectorRequestClientConfig{
 			MaxConnection:      10,
@@ -133,7 +137,7 @@ func handler(ctx context.Context) error {
 		ModelGroupID: groupResp.ModelGroupID,
 		ConnectorID:  connectorResp.ConnectorID,
 		ModelFormat:  "TORCH_SCRIPT",
-		ModelConfig: opensearchml.RegisterModelRequestModelConfig{
+		ModelConfig: &opensearchml.RegisterModelRequestModelConfig{
 			FrameworkType:      "sentence_transformers",
 			ModelType:          "TEXT_EMBEDDING",
 			EmbeddingDimension: 1024,
@@ -149,6 +153,69 @@ func handler(ctx context.Context) error {
 	}
 
 	logger.SetAttr("model_id", modelResp.ModelID)
+
+	converseConnector := opensearchml.CreateConnectorRequest{
+		Name:        "Amazon Bedrock Connector: Converse",
+		Description: "The connector to Bedrock Converse",
+		Version:     1,
+		Protocol:    "aws_sigv4",
+		Parameters: map[string]any{
+			"region":                             config.BedrockRegion,
+			"service_name":                       "bedrock",
+			"model":                              config.ConverseModel,
+			"system_prompt":                      config.ConverseSystemPrompt,
+			"temperature":                        0.0,
+			"top_p":                              0.9,
+			"max_tokens":                         1000,
+			"skip_validating_missing_parameters": true,
+		},
+		ClientConfig: opensearchml.CreateConnectorRequestClientConfig{
+			MaxConnection:      10,
+			ConnectionTimeout:  60000,
+			ReadTimeout:        60000,
+			RetryBackoffPolicy: "exponential_full_jitter",
+			MaxReryTimes:       5,
+			RetryBackoffMillis: 1000,
+		},
+		Credential: opensearchml.CreateConnectorRequestCredential{
+			RoleARN: config.RoleARN,
+		},
+		Actions: []opensearchml.CreateConnectorRequestAction{
+			{
+				ActionType: "PREDICT",
+				Method:     "POST",
+				URL:        "https://bedrock-runtime.${parameters.region}.amazonaws.com/model/${parameters.model}/converse",
+				Headers: map[string]string{
+					"content-type": "application/json",
+				},
+				RequestBody: `{ "system": [{"text": "${parameters.system_prompt}"}], "messages": ${parameters.messages}, "inferenceConfig": {"temperature": ${parameters.temperature}, "topP": ${parameters.top_p}, "maxTokens": ${parameters.max_tokens}} }`,
+			},
+		},
+	}
+
+	converseConnectorResp, err := client.CreateOrUpdateConnector(ctx, converseConnector)
+	if err != nil {
+		return logger.WrapError(err)
+	}
+
+	logger.SetAttr("converse_connector_id", converseConnectorResp.ConnectorID)
+	logger.SetAttr("converse_model_undeployed", converseConnectorResp.ModelUndeployed)
+	logger.SetAttr("converse_connector_changes", converseConnectorResp.Changes)
+
+	llmModel := opensearchml.RegisterModelRequest{
+		Name:         config.LLMModelName,
+		FunctionName: "remote",
+		Description:  "Bedrock Converse model",
+		ModelGroupID: groupResp.ModelGroupID,
+		ConnectorID:  converseConnectorResp.ConnectorID,
+	}
+
+	llmModelResp, err := client.RegisterModel(ctx, llmModel)
+	if err != nil {
+		return logger.WrapError(err)
+	}
+
+	logger.SetAttr("llm_model_id", llmModelResp.ModelID)
 
 	return nil
 }
