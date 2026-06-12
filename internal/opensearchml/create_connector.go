@@ -18,7 +18,7 @@ type CreateConnectorRequest struct {
 	Version      int                                `json:"version"`
 	ClientConfig CreateConnectorRequestClientConfig `json:"client_config,omitempty"`
 	Protocol     string                             `json:"protocol"`
-	Parameters   CreateConnectorRequestParameters   `json:"parameters"`
+	Parameters   map[string]any                     `json:"parameters"`
 	Credential   CreateConnectorRequestCredential   `json:"credential"`
 	Actions      []CreateConnectorRequestAction     `json:"actions"`
 }
@@ -32,15 +32,6 @@ type CreateConnectorRequestClientConfig struct {
 	RetryBackoffMillis  int    `json:"retry_backoff_millis,omitempty"`
 	RetryTimeoutSeconds int    `json:"retry_timeout_seconds,omitempty"`
 	SkipSSLVerification bool   `json:"skip_ssl_verification,omitempty"`
-}
-
-type CreateConnectorRequestParameters struct {
-	Region         string   `json:"region"`
-	ServiceName    string   `json:"service_name"`
-	Model          string   `json:"model"`
-	Dimensions     int      `json:"dimensions"`
-	Normalize      bool     `json:"normalize"`
-	EmbeddingTypes []string `json:"embeddingTypes"`
 }
 
 type CreateConnectorRequestCredential struct {
@@ -60,7 +51,7 @@ type CreateConnectorRequestAction struct {
 }
 
 type CreateOrUpdateConnectorResponse struct {
-	ConnectorID     string            `json:"connector_id"`
+	ConnectorID     string `json:"connector_id"`
 	ModelUndeployed bool
 	Changes         []ConnectorChange
 }

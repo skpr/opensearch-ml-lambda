@@ -10,13 +10,13 @@ import (
 )
 
 type RegisterModelRequest struct {
-	Name         string                          `json:"name"`
-	FunctionName string                          `json:"function_name"`
-	Description  string                          `json:"description"`
-	ModelGroupID string                          `json:"model_group_id"`
-	ConnectorID  string                          `json:"connector_id"`
-	ModelFormat  string                          `json:"model_format"`
-	ModelConfig  RegisterModelRequestModelConfig `json:"model_config"`
+	Name         string                           `json:"name"`
+	FunctionName string                           `json:"function_name"`
+	Description  string                           `json:"description"`
+	ModelGroupID string                           `json:"model_group_id"`
+	ConnectorID  string                           `json:"connector_id"`
+	ModelFormat  string                           `json:"model_format,omitempty"`
+	ModelConfig  *RegisterModelRequestModelConfig `json:"model_config,omitempty"`
 }
 
 type RegisterModelRequestModelConfig struct {
