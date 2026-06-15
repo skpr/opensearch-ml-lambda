@@ -46,8 +46,8 @@ type CreateConnectorRequestAction struct {
 	URL                 string            `json:"url"`
 	Headers             map[string]string `json:"headers"`
 	RequestBody         string            `json:"request_body"`
-	PreProcessFunction  string            `json:"pre_process_function"`
-	PostProcessFunction string            `json:"post_process_function"`
+	PreProcessFunction  string            `json:"pre_process_function,omitempty"`
+	PostProcessFunction string            `json:"post_process_function,omitempty"`
 }
 
 type CreateOrUpdateConnectorResponse struct {
