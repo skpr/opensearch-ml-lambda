@@ -17,13 +17,12 @@ import (
 
 // Config holds the environment configuration
 type Config struct {
-	StreamName           string `env:"STREAM_NAME,required"`
-	OpenSearchAddress    string `env:"OPENSEARCH_ADDRESS,required"`
-	RoleARN              string `env:"ROLE_ARN,required"`
-	BedrockRegion        string `env:"BEDROCK_REGION,required"`
-	ConverseModel        string `env:"CONVERSE_MODEL,required"`
-	ConverseSystemPrompt string `env:"CONVERSE_SYSTEM_PROMPT" default:"you are a helpful assistant."`
-	LLMModelName         string `env:"LLM_MODEL_NAME" default:"Bedrock Converse model"`
+	StreamName        string `env:"STREAM_NAME,required"`
+	OpenSearchAddress string `env:"OPENSEARCH_ADDRESS,required"`
+	RoleARN           string `env:"ROLE_ARN,required"`
+	BedrockRegion     string `env:"BEDROCK_REGION,required"`
+	ConverseModel     string `env:"CONVERSE_MODEL,required"`
+	LLMModelName      string `env:"LLM_MODEL_NAME" default:"Bedrock Converse model"`
 }
 
 func main() {
@@ -163,9 +162,7 @@ func handler(ctx context.Context) error {
 			"region":                             config.BedrockRegion,
 			"service_name":                       "bedrock",
 			"model":                              config.ConverseModel,
-			"system_prompt":                      config.ConverseSystemPrompt,
-			"temperature":                        0.0,
-			"top_p":                              0.9,
+			"temperature":                        0.7,
 			"max_tokens":                         1000,
 			"skip_validating_missing_parameters": true,
 		},
@@ -188,7 +185,7 @@ func handler(ctx context.Context) error {
 				Headers: map[string]string{
 					"content-type": "application/json",
 				},
-				RequestBody: `{ "system": [{"text": "${parameters.system_prompt}"}], "messages": ${parameters.messages}, "inferenceConfig": {"temperature": ${parameters.temperature}, "topP": ${parameters.top_p}, "maxTokens": ${parameters.max_tokens}} }`,
+				RequestBody: `{ "messages": ${parameters.messages}, "inferenceConfig": {"temperature": ${parameters.temperature}, "maxTokens": ${parameters.max_tokens}} }`,
 			},
 		},
 	}
